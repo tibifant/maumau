@@ -1,0 +1,33 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.3.32819.101
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MauMau", "MauMau\MauMau.csproj", "{5F05A28F-82E7-454B-B974-2A45251B504E}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "config", "config", "{2225FF5A-F4E8-4403-B004-92219CAFCFC2}"
+	ProjectSection(SolutionItems) = preProject
+		.editorconfig = .editorconfig
+	EndProjectSection
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		NETFX_CORE|Any CPU = NETFX_CORE|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{5F05A28F-82E7-454B-B974-2A45251B504E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5F05A28F-82E7-454B-B974-2A45251B504E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5F05A28F-82E7-454B-B974-2A45251B504E}.NETFX_CORE|Any CPU.ActiveCfg = Release|Any CPU
+		{5F05A28F-82E7-454B-B974-2A45251B504E}.NETFX_CORE|Any CPU.Build.0 = Release|Any CPU
+		{5F05A28F-82E7-454B-B974-2A45251B504E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5F05A28F-82E7-454B-B974-2A45251B504E}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {9A6DD9A7-68F2-4B25-B445-02CC06EF892E}
+	EndGlobalSection
+EndGlobal
