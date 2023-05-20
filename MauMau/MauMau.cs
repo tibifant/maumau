@@ -62,10 +62,27 @@ namespace Demos
         }
     }
 
-    internal struct CardState
+    internal class CardState
     {
         public ulong cardsLeft;
         public int cardCount;
+
+        public CardState(List<Card> cards)
+        {
+            foreach (var c in cards)
+                AddCard(c.suit, c.face);
+        }
+
+        public CardState(Player p, Card firstCard)
+        {
+            cardsLeft = (ulong)0xFFFFFFFF;
+            cardCount = 32;
+
+            foreach (var c in p.cards)
+                RemoveCard(c.suit, c.face);
+
+            RemoveCard(firstCard.suit, firstCard.face);
+        }
 
         public bool ContainsCard(Suit s, Face f)
         {
@@ -110,6 +127,12 @@ namespace Demos
     internal class Player
     {
         public List<Card> cards = new List<Card>();
+        public List<CardState> cardStates = new List<CardState>();
+
+        public void AddCardState(CardState cardState)
+        {
+            cardStates.Add(cardState);
+        }
     }
 
     internal class GameState
@@ -131,7 +154,7 @@ namespace Demos
                 return false;
         }
 
-        public Card DrawCard()
+        public void DrawCard(Player p)
         {
             if (availableCards.Count < 1)
             {
@@ -145,12 +168,24 @@ namespace Demos
                 Shuffle(availableCards);
 
                 playedCards.Add(lastPlayedCard);
+
+                foreach (var x in players.Values)
+                    x.AddCardState(new CardState(availableCards));
             }
+
 
             var card = availableCards[0];
             availableCards.RemoveAt(0);
 
-            return card;
+            if (p == null) // first ever Card gets drawn.
+            {
+                playedCards.Add(card);
+            }
+            else
+            {
+                p.cards.Add(card);
+                p.cardStates.Last().RemoveCard(card.suit, card.face);
+            }
         }
 
         public void Shuffle(List<Card> cards)
@@ -193,11 +228,15 @@ namespace Demos
             Shuffle(availableCards);
 
             // First card:
-            playedCards.Add(DrawCard());
+            DrawCard(null);
 
-            foreach (var l in lobby)
+            foreach (var p in players.Values)
+            {
                 for (int i = 0; i < 5; i++)
-                    players[l].cards.Add(DrawCard());
+                    DrawCard(p);
+
+                p.AddCardState(new CardState(p, playedCards.Last()));
+            }
 
             gameStarted = true;
         }
@@ -317,7 +356,7 @@ namespace Demos
                         if (gameState.isFirstTurn && gameState.playedCards.LastOrDefault().face == Face._7 && card.face != Face._7 && gameState.sevenDrawCounter > 0)
                         {
                             for (int i = 0; i < gameState.sevenDrawCounter; i++)
-                                cards.Add(gameState.DrawCard());
+                                gameState.DrawCard(gameState.players[sessionData.UserName]);
 
                             gameState.sevenDrawCounter = 0;
                             gameState.lastTurnWasDraw = true;
@@ -327,6 +366,9 @@ namespace Demos
                         gameState.lastTurnWasDraw = false;
                         gameState.playedCards.Add(card);
                         cards.RemoveAt(playIndex);
+
+                        foreach (var p in (from x in gameState.players where x.Key != sessionData.UserName select x))
+                            p.Value.cardStates.Last().RemoveCard(gameState.playedCards.Last().suit, gameState.playedCards.Last().face);
 
                         switch (card.face)
                         {
@@ -369,7 +411,7 @@ namespace Demos
                     if (gameState.isFirstTurn && gameState.playedCards.LastOrDefault().face == Face._7 && gameState.sevenDrawCounter > 0)
                     {
                         for (int i = 0; i < gameState.sevenDrawCounter; i++)
-                            cards.Add(gameState.DrawCard());
+                            gameState.DrawCard(gameState.players[sessionData.UserName]);
 
                         gameState.sevenDrawCounter = 0;
                         gameState.isFirstTurn = false;
@@ -377,7 +419,7 @@ namespace Demos
                     }
                     else
                     {
-                        cards.Add(gameState.DrawCard());
+                        gameState.DrawCard(gameState.players[sessionData.UserName]);
                         gameState.EndTurn();
 
                         yield return new HScript(ScriptCollection.GetPageReferalToX, nameof(MauMau));
