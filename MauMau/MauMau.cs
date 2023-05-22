@@ -89,11 +89,15 @@ namespace Demos
             return 0 != ((cardsLeft >> (int)(((int)s * Enum.GetValues(typeof(Face)).Length) + (int)f)) & 1);
         }
 
+        internal bool ContainsCard(Card card) => ContainsCard(card.suit, card.face);
+
         public void RemoveCard(Suit s, Face f)
         {
             cardsLeft &= ~((ulong)1 << (int)(((int)s * Enum.GetValues(typeof(Face)).Length) + (int)f));
             cardCount--;
         }
+
+        public void RemoveCard(Card c) => RemoveCard(c.suit, c.face);
 
         public void AddCard(Suit s, Face f)
         {
@@ -124,14 +128,57 @@ namespace Demos
         }
     }
 
+    internal class PlayerInformation
+    {
+        public Dictionary<CardState, int> cardsFromCardState = new Dictionary<CardState, int>();
+
+    }
+
     internal class Player
     {
         public List<Card> cards = new List<Card>();
         public List<CardState> cardStates = new List<CardState>();
+        public Dictionary<Player, PlayerInformation> otherPlayerInformation = new Dictionary<Player, PlayerInformation>();
 
-        public void AddCardState(CardState cardState)
+        public void Init(IEnumerable<Player> players)
+        {
+            foreach (Player p in players)
+                if (p != this)
+                    otherPlayerInformation.Add(p, new PlayerInformation());
+        }
+
+        public void NotifyCardShuffle(CardState cardState)
         {
             cardStates.Add(cardState);
+
+            foreach (var p in otherPlayerInformation)
+                p.Value.cardsFromCardState.Add(cardState, 0);
+        }
+
+        public void NotifyPlayerDrawCard(Player player)
+        {
+            if (player == this)
+                return;
+
+            // Add card to other player count per current set.
+            otherPlayerInformation[player].cardsFromCardState[cardStates.Last()]++;
+        }
+
+        public void NotifySelfDrawCard(Card card)
+        {
+            cards.Add(card);
+            cardStates.Last().RemoveCard(card);
+        }
+
+        public void NotifyOtherPlayerCardPlayed(Card card, Player player)
+        {
+            cardStates.Last().RemoveCard(card);
+
+            if (player != null)
+            {
+                // Remove card count from other player.
+                otherPlayerInformation[player].cardsFromCardState[(from c in cardStates where c.ContainsCard(card) select c).First()]--;
+            }
         }
     }
 
@@ -154,9 +201,14 @@ namespace Demos
                 return false;
         }
 
-        public void DrawCard(Player p)
+        /// <summary>
+        /// Draw a card for a given player.
+        /// </summary>
+        /// <param name="drawingPlayer">Null if this is the first card drawn</param>
+        public void DrawCard(Player drawingPlayer)
         {
-            if (availableCards.Count < 1)
+            // Attention: WE RELY ON THE FACT THAT THE CARD STATE IS REPLENISHED WHENEVER THE SET WAS EMPTY! Do not try to replenish the cards when there's no card left AFTER drawing!
+            if (availableCards.Count == 0)
             {
                 Card lastPlayedCard = playedCards.LastOrDefault();
                 playedCards.RemoveAt(playedCards.Count - 1);
@@ -170,22 +222,20 @@ namespace Demos
                 playedCards.Add(lastPlayedCard);
 
                 foreach (var x in players.Values)
-                    x.AddCardState(new CardState(availableCards));
+                    x.NotifyCardShuffle(new CardState(availableCards));
             }
-
 
             var card = availableCards[0];
             availableCards.RemoveAt(0);
 
-            if (p == null) // first ever Card gets drawn.
-            {
+            if (drawingPlayer == null) // first ever Card gets drawn.
                 playedCards.Add(card);
-            }
             else
-            {
-                p.cards.Add(card);
-                p.cardStates.Last().RemoveCard(card.suit, card.face);
-            }
+                drawingPlayer.NotifySelfDrawCard(card);
+
+            foreach (var p in players)
+                if (p.Value != drawingPlayer)
+                    p.Value.NotifyPlayerDrawCard(drawingPlayer);
         }
 
         public void Shuffle(List<Card> cards)
@@ -221,6 +271,9 @@ namespace Demos
             foreach (var l in lobby)
                 players.Add(l, new Player());
 
+            foreach (var p in players.Values)
+                p.Init(players.Values);
+
             foreach (var suit in Enum.GetValues(typeof(Suit)))
                 foreach (var face in Enum.GetValues(typeof(Face)))
                     availableCards.Add(new Card { suit = (Suit)suit, face = (Face)face });
@@ -235,10 +288,89 @@ namespace Demos
                 for (int i = 0; i < 5; i++)
                     DrawCard(p);
 
-                p.AddCardState(new CardState(p, playedCards.Last()));
+                p.NotifyCardShuffle(new CardState(p, playedCards.Last()));
             }
 
             gameStarted = true;
+        }
+
+        public bool PlayCard(int cardIndex, string suit)
+        {
+            int initialPlayerTurnIndex = playerTurnIndex;
+            Player currentPlayer = players[players.Keys.ToArray()[playerTurnIndex]];
+            List<Card> cards = currentPlayer.cards;
+
+            Card card = cards[cardIndex];
+            bool validCard = true;
+
+            switch (card.face)
+            {
+                case Face.Bube:
+                    {
+                        if (Enum.TryParse(suit, out Suit chosenSuit))
+                            card.suit = chosenSuit;
+                        else
+                            validCard = false;
+
+                        break;
+                    }
+            }
+
+            if (validCard)
+            {
+                if (isFirstTurn && playedCards.LastOrDefault().face == Face._7 && card.face != Face._7 && sevenDrawCounter > 0)
+                {
+                    for (int i = 0; i < sevenDrawCounter; i++)
+                        DrawCard(currentPlayer);
+
+                    sevenDrawCounter = 0;
+                    lastTurnWasDraw = true;
+                }
+
+                isFirstTurn = false;
+                lastTurnWasDraw = false;
+                playedCards.Add(card);
+                cards.RemoveAt(cardIndex);
+
+                foreach (var p in players)
+                    if (p.Value != currentPlayer)
+                        p.Value.NotifyOtherPlayerCardPlayed(playedCards.Last(), currentPlayer);
+
+                switch (card.face)
+                {
+                    case Face.Ass:
+                        break;
+
+                    case Face._8:
+                        playerTurnIndex++;
+                        EndTurn();
+                        break;
+
+                    case Face._7:
+                        sevenDrawCounter += 2;
+                        EndTurn();
+                        break;
+
+                    default:
+                        EndTurn();
+                        break;
+                }
+
+                if (cards.Count == 0 && playerTurnIndex != initialPlayerTurnIndex) // you're out.
+                {
+                    if (playerTurnIndex > initialPlayerTurnIndex)
+                        playerTurnIndex--;
+
+                    players.Remove(players.Keys.ToList()[initialPlayerTurnIndex]); // this is bad. still relying on keys.ToList() to always be in the same order, but now we may even know that it is in fact the same order, since it's ... ordered. thanks avl-tree!
+
+                    if (players.Count <= 1)
+                        gameStarted = false;
+                }
+
+                return true;
+            }
+
+            return false;
         }
     }
 
@@ -329,78 +461,13 @@ namespace Demos
             }
             else // if it's currently our turn.
             {
-                int initialPlayerTurnIndex = gameState.playerTurnIndex;
                 var cards = gameState.players[sessionData.UserName].cards;
                 string playString = sessionData.HttpHeadVariables["play"];
 
                 if (int.TryParse(playString, out int playIndex) && gameState.IsCardValidTurn(cards[playIndex]))
                 {
-                    Card card = cards[playIndex];
-                    bool validCard = true;
-
-                    switch (card.face)
+                    if (gameState.PlayCard(playIndex, sessionData.HttpHeadVariables["suit"]))
                     {
-                        case Face.Bube:
-                        {
-                            if (Enum.TryParse(sessionData.HttpHeadVariables["suit"], out Suit chosenSuit))
-                                card.suit = chosenSuit;
-                            else
-                                validCard = false;
-
-                            break;
-                        }
-                    }
-
-                    if (validCard)
-                    {
-                        if (gameState.isFirstTurn && gameState.playedCards.LastOrDefault().face == Face._7 && card.face != Face._7 && gameState.sevenDrawCounter > 0)
-                        {
-                            for (int i = 0; i < gameState.sevenDrawCounter; i++)
-                                gameState.DrawCard(gameState.players[sessionData.UserName]);
-
-                            gameState.sevenDrawCounter = 0;
-                            gameState.lastTurnWasDraw = true;
-                        }
-
-                        gameState.isFirstTurn = false;
-                        gameState.lastTurnWasDraw = false;
-                        gameState.playedCards.Add(card);
-                        cards.RemoveAt(playIndex);
-
-                        foreach (var p in (from x in gameState.players where x.Key != sessionData.UserName select x))
-                            p.Value.cardStates.Last().RemoveCard(gameState.playedCards.Last().suit, gameState.playedCards.Last().face);
-
-                        switch (card.face)
-                        {
-                            case Face.Ass:
-                                break;
-
-                            case Face._8:
-                                gameState.playerTurnIndex++;
-                                gameState.EndTurn();
-                                break;
-
-                            case Face._7:
-                                gameState.sevenDrawCounter += 2;
-                                gameState.EndTurn();
-                                break;
-
-                            default:
-                                gameState.EndTurn();
-                                break;
-                        }
-
-                        if (cards.Count == 0 && gameState.playerTurnIndex != initialPlayerTurnIndex) // you're out.
-                        {
-                            if (gameState.playerTurnIndex > initialPlayerTurnIndex)
-                                gameState.playerTurnIndex--;
-
-                            gameState.players.Remove(gameState.players.Keys.ToList()[initialPlayerTurnIndex]); // this is bad. still relying on keys.ToList() to always be in the same order, but now we may even know that it is in fact the same order, since it's ... ordered. thanks avl-tree!
-
-                            if (gameState.players.Count <= 1)
-                                gameState.gameStarted = false;
-                        }
-
                         yield return new HScript(ScriptCollection.GetPageReferalToX, nameof(MauMau));
                         yield break;
                     }
