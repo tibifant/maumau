@@ -154,8 +154,10 @@ namespace Demos
                     otherPlayerInformation.Add(p, new PlayerInformation());
         }
 
-        public void NotifyCardShuffle(CardState cardState)
+        public void NotifyCardShuffle(List<Card> cards)
         {
+            var cardState = new CardState(cards);
+
             cardStates.Add(cardState);
 
             foreach (var p in otherPlayerInformation)
@@ -179,13 +181,13 @@ namespace Demos
 
         public void NotifyOtherPlayerCardPlayed(Card card, Player player)
         {
-            cardStates.Last().RemoveCard(card);
+            var cardState = (from c in cardStates where c.ContainsCard(card) select c).First();
 
+            // Remove card count from other player.
             if (player != null)
-            {
-                // Remove card count from other player.
-                otherPlayerInformation[player].cardsFromCardState[(from c in cardStates where c.ContainsCard(card) select c).First()]--;
-            }
+                otherPlayerInformation[player].cardsFromCardState[cardState]--;
+
+            cardState.RemoveCard(card);
         }
     }
 
@@ -229,7 +231,7 @@ namespace Demos
                 playedCards.Add(lastPlayedCard);
 
                 foreach (var x in players.Values)
-                    x.NotifyCardShuffle(new CardState(availableCards));
+                    x.NotifyCardShuffle(availableCards);
             }
 
             var card = availableCards[0];
@@ -241,8 +243,15 @@ namespace Demos
                 drawingPlayer.NotifySelfDrawCard(card);
 
             foreach (var p in players)
+            {
                 if (p.Value != drawingPlayer)
-                    p.Value.NotifyPlayerDrawCard(drawingPlayer);
+                {
+                    if (drawingPlayer != null)
+                        p.Value.NotifyPlayerDrawCard(drawingPlayer);
+                    else
+                        p.Value.NotifyOtherPlayerCardPlayed(card, null);
+                }
+            }
         }
 
         public void Shuffle(List<Card> cards)
@@ -278,25 +287,24 @@ namespace Demos
             foreach (var l in lobby)
                 players.Add(l, new Player());
 
-            foreach (var p in players.Values)
-                p.Init(players.Values);
-
             foreach (var suit in Enum.GetValues(typeof(Suit)))
                 foreach (var face in Enum.GetValues(typeof(Face)))
                     availableCards.Add(new Card((Suit)suit, (Face)face));
 
             Shuffle(availableCards);
 
+            foreach (var p in players.Values)
+            {
+                p.Init(players.Values);
+                p.NotifyCardShuffle(availableCards);
+            }
+
             // First card:
             DrawCard(null);
 
             foreach (var p in players.Values)
-            {
                 for (int i = 0; i < 5; i++)
                     DrawCard(p);
-
-                p.NotifyCardShuffle(new CardState(p, playedCards.Last()));
-            }
 
             gameStarted = true;
         }
@@ -461,15 +469,17 @@ namespace Demos
 
             yield return new HHeadline("Your Cards:", 2);
 
+            var currentPlayer = gameState.players[sessionData.UserName];
+
             // not sure if ToList returns the Keys in the correct order for every functioncall.
             if (gameState.players.Keys.ToList()[gameState.playerTurnIndex] != sessionData.UserName) // if it's currently someone elses turn.
             {
-                yield return new HContainer { Class = "your_cards", Elements = (from x in gameState.players[sessionData.UserName].cards select x.ToButton(null)).ToList() };
+                yield return new HContainer { Class = "your_cards", Elements = (from x in currentPlayer.cards select x.ToButton(null)).ToList() };
                 yield return new HScript(ScriptCollection.GetPageReferalToXInMilliseconds, nameof(MauMau), 1000);
             }
             else // if it's currently our turn.
             {
-                var cards = gameState.players[sessionData.UserName].cards;
+                var cards = currentPlayer.cards;
                 string playString = sessionData.HttpHeadVariables["play"];
 
                 if (int.TryParse(playString, out int playIndex) && gameState.IsCardValidTurn(cards[playIndex]))
@@ -486,7 +496,7 @@ namespace Demos
                     if (gameState.isFirstTurn && gameState.playedCards.LastOrDefault().face == Face._7 && gameState.sevenDrawCounter > 0)
                     {
                         for (int i = 0; i < gameState.sevenDrawCounter; i++)
-                            gameState.DrawCard(gameState.players[sessionData.UserName]);
+                            gameState.DrawCard(currentPlayer);
 
                         gameState.sevenDrawCounter = 0;
                         gameState.isFirstTurn = false;
@@ -494,7 +504,7 @@ namespace Demos
                     }
                     else
                     {
-                        gameState.DrawCard(gameState.players[sessionData.UserName]);
+                        gameState.DrawCard(currentPlayer);
                         gameState.EndTurn();
 
                         yield return new HScript(ScriptCollection.GetPageReferalToX, nameof(MauMau));
@@ -533,6 +543,30 @@ namespace Demos
                 else
                 {
                     yield return new HButton("Draw", "?draw") { Class = "action" };
+                }
+
+                // Cheats.
+                if (anyValidCard)
+                {
+                    List<IEnumerable<HElement>> table = new List<IEnumerable<HElement>>();
+
+                    table.Add(new List<HElement>() { "Card", "Probability Suit", "Probability Face", "Probability Bube" });
+
+                    var nextPlayer = gameState.players[gameState.players.Keys.ToList()[(gameState.playerTurnIndex + 1) % gameState.players.Count]];
+
+                    foreach (var c in cards)
+                    {
+                        if (gameState.IsCardValidTurn(c))
+                        {
+                            double probabilitySuit = 0; // TODO: !
+                            double probabilityFace = 0; // TODO: !
+                            double probabilityBube = 0; // TODO: !
+
+                            table.Add(new List<HElement>() { $"{c.suit} {c.face}", $"{probabilitySuit * 100} %", $"{probabilityFace * 100} %", $"{probabilityBube * 100} %" });
+                        }
+                    }
+
+                    yield return new HTable(table);
                 }
             }
         }
