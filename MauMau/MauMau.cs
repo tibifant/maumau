@@ -23,8 +23,15 @@ namespace Demos
 
     internal struct Card
     {
-        internal Suit suit;
-        internal Face face;
+        internal readonly Suit suit;
+        internal readonly Face face;
+        internal Suit displayedSuit;
+
+        internal Card(Suit suit, Face face)
+        {
+            displayedSuit = this.suit = suit;
+            this.face = face;
+        }
 
         private HElement ToButtonInternal(int? index, string className, string additionalParams = "")
         {
@@ -33,7 +40,7 @@ namespace Demos
                 Class = $"{className}{(index.HasValue ? " playable" : "")}",
                 Elements =
                     {
-                        new HContainer { Class = $"suit {suit}" },
+                        new HContainer { Class = $"suit {displayedSuit}" },
                         new HContainer { Class = $"face {face}" }
                     }
             };
@@ -52,10 +59,10 @@ namespace Demos
                     Class = "card Bube",
                     Elements = 
                     {
-                        new Card(){ face = Face.Bube, suit = Suit.Kreuz }.ToButtonInternal(index, "subcard", $"&suit={Suit.Kreuz}"),
-                        new Card(){ face = Face.Bube, suit = Suit.Pik }.ToButtonInternal(index, "subcard", $"&suit={Suit.Pik}"),
-                        new Card(){ face = Face.Bube, suit = Suit.Karo }.ToButtonInternal(index, "subcard", $"&suit={Suit.Karo}"),
-                        new Card(){ face = Face.Bube, suit = Suit.Herz }.ToButtonInternal(index, "subcard", $"&suit={Suit.Herz}"),
+                        new Card(suit, face){ displayedSuit = Suit.Kreuz }.ToButtonInternal(index, "subcard", $"&suit={Suit.Kreuz}"),
+                        new Card(suit, face){ displayedSuit = Suit.Pik }.ToButtonInternal(index, "subcard", $"&suit={Suit.Pik}"),
+                        new Card(suit, face){ displayedSuit = Suit.Karo }.ToButtonInternal(index, "subcard", $"&suit={Suit.Karo}"),
+                        new Card(suit, face){ displayedSuit = Suit.Herz }.ToButtonInternal(index, "subcard", $"&suit={Suit.Herz}"),
                     }
                 };
             }
@@ -276,7 +283,7 @@ namespace Demos
 
             foreach (var suit in Enum.GetValues(typeof(Suit)))
                 foreach (var face in Enum.GetValues(typeof(Face)))
-                    availableCards.Add(new Card { suit = (Suit)suit, face = (Face)face });
+                    availableCards.Add(new Card((Suit)suit, (Face)face));
 
             Shuffle(availableCards);
 
@@ -308,7 +315,7 @@ namespace Demos
                 case Face.Bube:
                     {
                         if (Enum.TryParse(suit, out Suit chosenSuit))
-                            card.suit = chosenSuit;
+                            card.displayedSuit = chosenSuit;
                         else
                             validCard = false;
 
@@ -435,6 +442,7 @@ namespace Demos
                 yield break;
             }
 
+            // if we're spectating.
             if (!gameState.players.ContainsKey(sessionData.UserName))
             {
                 yield return new HContainer { Class = $"active_card{(gameState.playedCards.LastOrDefault().face == Face._7 && gameState.sevenDrawCounter > 0 ? $" draw _{gameState.sevenDrawCounter}" : "")}", Elements = { gameState.playedCards.LastOrDefault().ToButton(null) } };
