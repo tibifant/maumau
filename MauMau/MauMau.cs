@@ -235,7 +235,7 @@ namespace Demos
                 availableCards = playedCards;
                 playedCards = tmp;
 
-                Shuffle(availableCards);
+                Shuffle(ref availableCards);
 
                 playedCards.Add(lastPlayedCard);
 
@@ -263,11 +263,9 @@ namespace Demos
             }
         }
 
-        public void Shuffle(List<Card> cards)
+        public void Shuffle(ref List<Card> cards)
         {
-            var newCards = (from c in cards select new Card(c.suit, c.face)).ToList(); // Changing the `displayedSuit` back to `suit`.
-            cards.Clear();
-            cards.AddRange(newCards);
+            cards = (from c in cards select new Card(c.suit, c.face)).ToList(); // Changing the `displayedSuit` back to `suit`.
 
             Random rand = new Random();
 
@@ -296,6 +294,7 @@ namespace Demos
             playerTurnIndex = 0;
             sevenDrawCounter = 0;
             isFirstTurn = true;
+            players = new LamestWebserver.Collections.AVLTree<string, Player>();
 
             foreach (var l in lobby)
             {
@@ -309,7 +308,7 @@ namespace Demos
                 foreach (var face in Enum.GetValues(typeof(Face)))
                     availableCards.Add(new Card((Suit)suit, (Face)face));
 
-            Shuffle(availableCards);
+            Shuffle(ref availableCards);
 
             foreach (var p in players.Values)
             {
@@ -683,6 +682,7 @@ namespace Demos
             {
                 // Draw Card.
                 gameState.DrawCard(player);
+                gameState.EndTurn();
             }
             else
             {
