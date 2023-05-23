@@ -3,6 +3,7 @@ using LamestWebserver.UI;
 using Newtonsoft.Json.Schema;
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
 using System.Reflection;
 using System.Text;
@@ -114,10 +115,12 @@ namespace Demos
 
         public int GetSuitCards(Suit s)
         {
-            ulong suitMask = (((ulong)1 << Enum.GetValues(typeof(Face)).Length) - 1) << ((int)s);
+            ulong suitMask = (((ulong)1 << Enum.GetValues(typeof(Face)).Length) - 1) << ((int)s * Enum.GetValues(typeof(Face)).Length);
 
             return PopCnt(cardsLeft & suitMask);
         }
+
+        public static ulong GetSuitMask(Suit s) => (((ulong)1 << Enum.GetValues(typeof(Face)).Length) - 1) << ((int)s * Enum.GetValues(typeof(Face)).Length);
 
         public int GetFaceCards(Face f)
         {
@@ -125,6 +128,10 @@ namespace Demos
 
             return PopCnt(cardsLeft & faceMask);
         }
+
+        public static ulong GetFaceMask(Face f) => (ulong)(1 << (int)f) * (ulong)(0x99); // relies on number of faces being 8.
+
+        public int GetMatchingCardCount(ulong mask) => PopCnt(cardsLeft & mask);
 
         // https://stackoverflow.com/a/11517887 ????
         private static byte PopCnt(ulong value)
@@ -138,7 +145,6 @@ namespace Demos
     internal class PlayerInformation
     {
         public Dictionary<CardState, int> cardsFromCardState = new Dictionary<CardState, int>();
-
     }
 
     internal class Player
@@ -204,7 +210,7 @@ namespace Demos
 
         public bool IsCardValidTurn(Card card)
         {
-            if (card.suit == playedCards.LastOrDefault().suit || card.face == playedCards.LastOrDefault().face || card.face == Face.Bube)
+            if (card.suit == playedCards.LastOrDefault().displayedSuit || card.face == playedCards.LastOrDefault().face || card.face == Face.Bube)
                 return true;
             else
                 return false;
@@ -256,6 +262,8 @@ namespace Demos
 
         public void Shuffle(List<Card> cards)
         {
+            cards = (from c in cards select new Card(c.suit, c.face)).ToList(); // Changing the `displayedSuit` back to `suit`.
+
             Random rand = new Random();
 
             for (int i = 0; i < 1000; i++)
@@ -550,25 +558,51 @@ namespace Demos
                 {
                     List<IEnumerable<HElement>> table = new List<IEnumerable<HElement>>();
 
-                    table.Add(new List<HElement>() { "Card", "Probability Suit", "Probability Face", "Probability Bube" });
+                    table.Add(new List<HElement>() { "Card", "Probability" });
 
                     var nextPlayer = gameState.players[gameState.players.Keys.ToList()[(gameState.playerTurnIndex + 1) % gameState.players.Count]];
+                    var player = gameState.players[gameState.players.Keys.ToList()[gameState.playerTurnIndex % gameState.players.Count]];
 
                     foreach (var c in cards)
                     {
                         if (gameState.IsCardValidTurn(c))
                         {
-                            double probabilitySuit = 0; // TODO: !
-                            double probabilityFace = 0; // TODO: !
-                            double probabilityBube = 0; // TODO: !
-
-                            table.Add(new List<HElement>() { $"{c.suit} {c.face}", $"{probabilitySuit * 100} %", $"{probabilityFace * 100} %", $"{probabilityBube * 100} %" });
+                            if (c.face == Face.Bube)
+                            {
+                                foreach (var suit in Enum.GetValues(typeof(Suit)))
+                                    AddCardProbabilities(table, player, new Card((Suit)suit, Face.Bube), nextPlayer);
+                            }
+                            else
+                            {
+                                AddCardProbabilities(table, player, c, nextPlayer);
+                            }
                         }
                     }
 
                     yield return new HTable(table);
                 }
             }
+        }
+
+        private static void AddCardProbabilities(List<IEnumerable<HElement>> table, Player player, Card card, Player nextPlayer)
+        {
+            double probability = 0;
+
+            foreach (var state in player.otherPlayerInformation[nextPlayer].cardsFromCardState)
+            {
+                if (state.Value == 0) // || state.Key.cardCount == 0, but that'll be 0 in the first case.
+                    continue;
+
+                ulong mask = CardState.GetFaceMask(card.face) | CardState.GetSuitMask(card.suit) | CardState.GetFaceMask(Face.Bube);
+                int possibleMatchingCards = state.Key.GetMatchingCardCount(mask);
+
+                if (possibleMatchingCards == 0)
+                    continue;
+
+                probability = 1.0 - ((1.0 - probability) * Math.Pow(1 - (double)possibleMatchingCards / state.Key.cardCount, state.Value));
+            }
+
+            table.Add(new List<HElement>() { $"{card.suit} {card.face}", $"{probability * 100} %" });
         }
     }
 }
