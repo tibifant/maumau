@@ -152,6 +152,7 @@ namespace Demos
         public List<Card> cards = new List<Card>();
         public List<CardState> cardStates = new List<CardState>();
         public Dictionary<Player, PlayerInformation> otherPlayerInformation = new Dictionary<Player, PlayerInformation>();
+        public int botType = 0;
 
         public void Init(IEnumerable<Player> players)
         {
@@ -208,6 +209,8 @@ namespace Demos
         public int playerTurnIndex = 0;
         public int sevenDrawCounter = 0;
 
+        public static string EasyBotName = "DracoMalfoy";
+
         public bool IsCardValidTurn(Card card)
         {
             if (card.suit == playedCards.LastOrDefault().displayedSuit || card.face == playedCards.LastOrDefault().face || card.face == Face.Bube)
@@ -262,7 +265,9 @@ namespace Demos
 
         public void Shuffle(List<Card> cards)
         {
-            cards = (from c in cards select new Card(c.suit, c.face)).ToList(); // Changing the `displayedSuit` back to `suit`.
+            var newCards = (from c in cards select new Card(c.suit, c.face)).ToList(); // Changing the `displayedSuit` back to `suit`.
+            cards.Clear();
+            cards.AddRange(newCards);
 
             Random rand = new Random();
 
@@ -293,7 +298,12 @@ namespace Demos
             isFirstTurn = true;
 
             foreach (var l in lobby)
-                players.Add(l, new Player());
+            {
+                players.Add(l, new Player()); 
+
+                if (l == EasyBotName)
+                    players.Last().Value.botType = 1; // Mark bot name players as bots.
+            }
 
             foreach (var suit in Enum.GetValues(typeof(Suit)))
                 foreach (var face in Enum.GetValues(typeof(Face)))
@@ -401,16 +411,39 @@ namespace Demos
     {
         List<string> lobby = new List<string>();
         GameState gameState = new GameState();
+        LamestWebserver.Synchronization.UsableLockSimple mutex = new LamestWebserver.Synchronization.UsableLockSimple();
 
         public MauMau() : base(nameof(MauMau)) { }
 
         protected override string GetContents(SessionData sessionData)
         {
-            // Get the default layout around the elements retrieved by GetElements()
-            HElement page = MainPage.GetPage(GetElements(sessionData as HttpSessionData), "MauMau");
+            using (mutex.Lock())
+            {
+                // Get the default layout around the elements retrieved by GetElements()
+                HElement page = MainPage.GetPage(GetElements(sessionData as HttpSessionData), "MauMau");
 
-            // To get the HTML-string of an HElement, call GetContent with the current session data.
-            return page.GetContent(sessionData);
+                // Handle Bots.
+                if (gameState.gameStarted)
+                {
+                    while (true)
+                    {
+                        var player = gameState.players[gameState.players.Keys.ToList()[gameState.playerTurnIndex]];
+
+                        if (player.botType == 0)
+                            break;
+
+                        switch (player.botType)
+                        {
+                            case 1:
+                                HandleEasyBot(gameState, player);
+                                break;
+                        }
+                    }
+                }
+
+                // To get the HTML-string of an HElement, call GetContent with the current session data.
+                return page.GetContent(sessionData);
+            }
         }
 
         private IEnumerable<HElement> GetElements(HttpSessionData sessionData)
@@ -448,11 +481,20 @@ namespace Demos
                     yield break;
                 }
 
+                // Add bot.
+                if (null != sessionData.HttpHeadVariables["bot"])
+                {
+                    if (!lobby.Contains(GameState.EasyBotName))
+                        lobby.Add(GameState.EasyBotName);
+                }
+
                 yield return new HHeadline("Lobby:", 2);
                 yield return new HList(HList.EListType.UnorderedList, from x in lobby select new HText(x));
 
                 if (lobby.Count > 1)
                     yield return new HLink("Start Game.", $"{nameof(MauMau)}?start");
+
+                yield return new HLink("Add Bot.", $"{nameof(MauMau)}?bot");
 
                 yield return new HScript(ScriptCollection.GetPageReloadInMilliseconds, 1000);
                 yield break;
@@ -578,13 +620,80 @@ namespace Demos
                             }
                         }
                     }
-
+                    
                     yield return new HTable(table);
                 }
             }
         }
 
-        private static void AddCardProbabilities(List<IEnumerable<HElement>> table, Player player, Card card, Player nextPlayer)
+        private void HandleEasyBot(GameState gameState, Player player)
+        {
+            double lowestProbability = 1;
+            double lowest7probability = 1;
+            int bestCardIndex = -1;
+            int best7Index = -1;
+            Suit bubeSuit = Suit.Kreuz;
+
+            var cards = player.cards;
+            var nextPlayer = gameState.players[gameState.players.Keys.ToList()[(gameState.playerTurnIndex + 1) % gameState.players.Count]];
+
+            for (int i = 0; i < cards.Count; i++)
+            {
+                Card card = cards[i];
+
+                if (gameState.IsCardValidTurn(card))
+                {
+                    if (card.face == Face.Bube)
+                    {
+                        foreach (var suit in Enum.GetValues(typeof(Suit)))
+                        {
+                            var probability = GetProbabilityForCard(player, new Card((Suit)suit, card.face), nextPlayer);
+
+                            if (probability < lowestProbability)
+                            {
+                                lowestProbability = probability;
+                                bestCardIndex = i;
+                                bubeSuit = (Suit)suit;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        var probability = GetProbabilityForCard(player, card, nextPlayer);
+
+                        if (card.face == Face._7)
+                        {
+                            if (probability < lowest7probability)
+                            {
+                                lowest7probability = probability;
+                                best7Index = i;
+                            }
+                        }
+
+                        if (probability < lowestProbability)
+                        {
+                            lowestProbability = probability;
+                            bestCardIndex = i;
+                        }
+                    }
+                }
+            }
+
+            if (bestCardIndex == -1)
+            {
+                // Draw Card.
+                gameState.DrawCard(player);
+            }
+            else
+            {
+                if (gameState.playedCards.Last().face == Face._7 && best7Index != -1)
+                    gameState.PlayCard(best7Index, bubeSuit.ToString());
+                else
+                    gameState.PlayCard(bestCardIndex, bubeSuit.ToString());
+            }
+        }
+
+        private static double GetProbabilityForCard(Player player, Card card, Player nextPlayer)
         {
             double probability = 0;
 
@@ -602,7 +711,9 @@ namespace Demos
                 probability = 1.0 - ((1.0 - probability) * Math.Pow(1 - (double)possibleMatchingCards / state.Key.cardCount, state.Value));
             }
 
-            table.Add(new List<HElement>() { $"{card.suit} {card.face}", $"{probability * 100} %" });
+            return probability;
         }
+
+        private static void AddCardProbabilities(List<IEnumerable<HElement>> table, Player player, Card card, Player nextPlayer) => table.Add(new List<HElement>() { $"{card.suit} {card.face}", $"{GetProbabilityForCard(player, card, nextPlayer) * 100} %" });
     }
 }
