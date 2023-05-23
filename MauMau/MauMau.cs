@@ -504,7 +504,7 @@ namespace Demos
             {
                 yield return new HContainer { Class = $"active_card{(gameState.playedCards.LastOrDefault().face == Face._7 && gameState.sevenDrawCounter > 0 ? $" draw _{gameState.sevenDrawCounter}" : "")}", Elements = { gameState.playedCards.LastOrDefault().ToButton(null) } };
 
-                yield return new HList(HList.EListType.OrderedList, from p in gameState.players.OrderBy(x => gameState.players[x.Key].cards.Count) select new HContainer { Elements = { new HText($"{p}: {gameState.players[p.Key].cards.Count} Cards"), new HContainer { Class = "player_preview", Elements = (from c in gameState.players[p.Key].cards select c.ToButton(null)).ToList() } } });
+                yield return new HList(HList.EListType.OrderedList, from p in gameState.players.OrderBy(x => gameState.players[x.Key].cards.Count) select new HContainer { Elements = { new HText($"{p.Key}: {gameState.players[p.Key].cards.Count} Cards"), new HContainer { Class = "player_preview", Elements = (from c in gameState.players[p.Key].cards select c.ToButton(null)).ToList() } } });
 
                 yield return new HScript(ScriptCollection.GetPageReloadInMilliseconds, 1000);
                 yield break;
