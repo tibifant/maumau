@@ -210,6 +210,7 @@ namespace Demos
         public int sevenDrawCounter = 0;
 
         public static string EasyBotName = "DracoMalfoy";
+        public static string NiceBotName = "HarryPotter";
 
         public bool IsCardValidTurn(Card card)
         {
@@ -302,6 +303,8 @@ namespace Demos
 
                 if (l == EasyBotName)
                     players.Last().Value.botType = 1; // Mark bot name players as bots.
+                if (l == NiceBotName)
+                    players.Last().Value.botType = 2;
             }
 
             foreach (var suit in Enum.GetValues(typeof(Suit)))
@@ -436,6 +439,9 @@ namespace Demos
                             case 1:
                                 HandleEasyBot(gameState, player);
                                 break;
+                            case 2:
+                                HandleNiceBot(gameState, player);
+                                break;
                         }
                     }
                 }
@@ -481,10 +487,16 @@ namespace Demos
                 }
 
                 // Add bot.
-                if (null != sessionData.HttpHeadVariables["bot"])
+                if (null != sessionData.HttpHeadVariables["easybot"])
                 {
                     if (!lobby.Contains(GameState.EasyBotName))
                         lobby.Add(GameState.EasyBotName);
+                }
+
+                if (null != sessionData.HttpHeadVariables["nicebot"])
+                {
+                    if (!lobby.Contains(GameState.NiceBotName))
+                        lobby.Add(GameState.NiceBotName);
                 }
 
                 yield return new HHeadline("Lobby:", 2);
@@ -493,7 +505,9 @@ namespace Demos
                 if (lobby.Count > 1)
                     yield return new HLink("Start Game.", $"{nameof(MauMau)}?start");
 
-                yield return new HLink("Add Bot.", $"{nameof(MauMau)}?bot");
+                yield return new HLink("Add Easy Bot.", $"{nameof(MauMau)}?easybot");
+
+                yield return new HLink("Add Nice Bot.", $"{nameof(MauMau)}?nicebot");
 
                 yield return new HScript(ScriptCollection.GetPageReloadInMilliseconds, 1000);
                 yield break;
@@ -690,6 +704,74 @@ namespace Demos
                     gameState.PlayCard(best7Index, bubeSuit.ToString());
                 else
                     gameState.PlayCard(bestCardIndex, bubeSuit.ToString());
+            }
+        }
+
+        private void HandleNiceBot(GameState gameState, Player player)
+        {
+            double highestProbability = 0;
+            double highest7probability = 0;
+            int worstCardIndex = -1;
+            int worst7Index = -1;
+            Suit bubeSuit = Suit.Kreuz;
+
+            var cards = player.cards;
+            var nextPlayer = gameState.players[gameState.players.Keys.ToList()[(gameState.playerTurnIndex + 1) % gameState.players.Count]];
+
+            for (int i = 0; i < cards.Count; i++)
+            {
+                Card card = cards[i];
+
+                if (gameState.IsCardValidTurn(card))
+                {
+                    if (card.face == Face.Bube)
+                    {
+                        foreach (var suit in Enum.GetValues(typeof(Suit)))
+                        {
+                            var probability = GetProbabilityForCard(player, new Card((Suit)suit, card.face), nextPlayer);
+
+                            if (probability > highestProbability)
+                            {
+                                highestProbability = probability;
+                                worstCardIndex = i;
+                                bubeSuit = (Suit)suit;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        var probability = GetProbabilityForCard(player, card, nextPlayer);
+
+                        if (card.face == Face._7)
+                        {
+                            if (probability > highest7probability)
+                            {
+                                highest7probability = probability;
+                                worst7Index = i;
+                            }
+                        }
+
+                        if (probability > highestProbability)
+                        {
+                            highestProbability = probability;
+                            worstCardIndex = i;
+                        }
+                    }
+                }
+            }
+
+            if (worstCardIndex == -1)
+            {
+                // Draw Card.
+                gameState.DrawCard(player);
+                gameState.EndTurn();
+            }
+            else
+            {
+                if (gameState.playedCards.Last().face == Face._7 && highest7probability >= 1.0 && worst7Index != -1)
+                    gameState.PlayCard(worst7Index, bubeSuit.ToString());
+                else
+                    gameState.PlayCard(worstCardIndex, bubeSuit.ToString());
             }
         }
 
