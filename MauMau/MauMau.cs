@@ -68,12 +68,35 @@ namespace Demos
                 };
             }
         }
+
+        internal object GetResponseProbability(Player player, Player nextPlayer)
+        {
+            double probability = 0;
+
+            foreach (var state in player.otherPlayerInformation[nextPlayer].cardsFromCardState)
+            {
+                if (state.Value == 0) // || state.Key.cardCount == 0, but that'll be 0 in the first case.
+                    continue;
+
+                ulong mask = CardState.GetFaceMask(face) | CardState.GetSuitMask(suit) | CardState.GetFaceMask(Face.Bube);
+                int possibleMatchingCards = state.Key.GetMatchingCardCount(mask);
+
+                if (possibleMatchingCards == 0)
+                    continue;
+
+                probability = 1.0 - ((1.0 - probability) * Math.Pow(1 - (double)possibleMatchingCards / state.Key.cardCount, state.Value));
+            }
+
+            return probability;
+        }
     }
 
     internal class CardState
     {
         public ulong cardsLeft;
         public int cardCount;
+
+        static readonly int CardsPerFace = Enum.GetValues(typeof(Face)).Length;
 
         public CardState(List<Card> cards)
         {
@@ -107,10 +130,11 @@ namespace Demos
 
         public void RemoveCard(Card c) => RemoveCard(c.suit, c.face);
 
-        public void AddCard(Suit s, Face f)
+        public void AddCard(Suit suit, Face face)
         {
-            cardsLeft |= ((ulong)1 << (int)(((int)s * Enum.GetValues(typeof(Face)).Length) + (int)f));
-            cardCount++;
+            int cardIndex = (int)suit + (int)face * CardsPerFace;
+
+            cardsLeft |= (ulong)1 << cardIndex;
         }
 
         public int GetSuitCards(Suit s)
@@ -196,6 +220,41 @@ namespace Demos
 
             cardState.RemoveCard(card);
         }
+
+        public IEnumerable<CardSelection> GetValidCards(GameState gameState)
+        {
+            int index = -1;
+
+            foreach (var card in cards)
+            {
+                ++index;
+
+                if (!gameState.IsCardValidTurn(card))
+                    continue;
+
+                if (card.face == Face.Bube)
+                {
+                    foreach (var suit in Enum.GetValues(typeof(Suit)))
+                        yield return new CardSelection(index, new Card((Suit)suit, card.face));
+                }
+                else
+                {
+                    yield return new CardSelection(index, card);
+                }
+            }
+        }
+    }
+
+    internal class CardSelection
+    {
+        public Card card;
+        public int index;
+
+        public CardSelection(int index, Card card)
+        {
+            this.card = card;
+            this.index = index;
+        }
     }
 
     internal class GameState
@@ -264,6 +323,8 @@ namespace Demos
             }
         }
 
+        public Player GetNextPlayer() => players[players.Keys.ToList()[(playerTurnIndex + 1) % players.Count]];
+
         public void Shuffle(ref List<Card> cards)
         {
             cards = (from c in cards select new Card(c.suit, c.face)).ToList(); // Changing the `displayedSuit` back to `suit`.
@@ -328,6 +389,9 @@ namespace Demos
 
             gameStarted = true;
         }
+
+        public bool PlayCard(int cardIndex, Suit displayedSuit) => PlayCard(cardIndex, displayedSuit.ToString());
+        public bool PlayCard(int cardIndex) => PlayCard(cardIndex, "");
 
         public bool PlayCard(int cardIndex, string suit)
         {
@@ -639,72 +703,77 @@ namespace Demos
             }
         }
 
-        private void HandleEasyBot(GameState gameState, Player player)
+        private void HandleEasyBot(GameState gameState, Player player) => PerformSingleTurn(gameState, player);
+
+        public class CardSelection
         {
-            double lowestProbability = 1;
-            double lowest7probability = 1;
-            int bestCardIndex = -1;
-            int best7Index = -1;
-            Suit bubeSuit = Suit.Kreuz;
+            public Card card;
+            public int index;
 
-            var cards = player.cards;
-            var nextPlayer = gameState.players[gameState.players.Keys.ToList()[(gameState.playerTurnIndex + 1) % gameState.players.Count]];
-
-            for (int i = 0; i < cards.Count; i++)
+            public CardSelection(int index, Card card)
             {
-                Card card = cards[i];
+                this.card = card;
+                this.index = index;
+            }
+        }
 
-                if (gameState.IsCardValidTurn(card))
+        private IEnumerable<CardSelection> GetValidCardsFromPlayer(GameState gameState, Player player)
+        {
+            int index = -1;
+
+            foreach (var card in player.cards)
+            {
+                ++index;
+
+                if (!gameState.IsCardValidTurn(card))
+                    continue;
+
+                if (card.face == Face.Bube)
                 {
-                    if (card.face == Face.Bube)
-                    {
-                        foreach (var suit in Enum.GetValues(typeof(Suit)))
-                        {
-                            var probability = GetProbabilityForCard(player, new Card((Suit)suit, card.face), nextPlayer);
-
-                            if (probability < lowestProbability)
-                            {
-                                lowestProbability = probability;
-                                bestCardIndex = i;
-                                bubeSuit = (Suit)suit;
-                            }
-                        }
-                    }
-                    else
-                    {
-                        var probability = GetProbabilityForCard(player, card, nextPlayer);
-
-                        if (card.face == Face._7)
-                        {
-                            if (probability < lowest7probability)
-                            {
-                                lowest7probability = probability;
-                                best7Index = i;
-                            }
-                        }
-
-                        if (probability < lowestProbability)
-                        {
-                            lowestProbability = probability;
-                            bestCardIndex = i;
-                        }
-                    }
+                    foreach (var suit in Enum.GetValues(typeof(Suit)))
+                        yield return new CardSelection(index, new Card((Suit)suit, card.face));
+                }
+                else
+                {
+                    yield return new CardSelection(index, card);
                 }
             }
+        }
 
-            if (bestCardIndex == -1)
+        private void PerformSingleTurn(GameState gameState, Player player)
+        {
+            var nextPlayer = gameState.GetNextPlayer();
+            var validTurns = player.GetValidCards(gameState);
+
+            if (!validTurns.Any())
             {
-                // Draw Card.
-                gameState.DrawCard(player);
+                gameState.DrawCard(player); // The gameState will automatically draw more if there's currently a seven active.
                 gameState.EndTurn();
+                return;
             }
-            else
+
+            var ratedTurns = from t in validTurns select new { t.index, t.card, probability = CalculateResponseProbability(player, t.card, nextPlayer) };
+
+            if (gameState.sevenDrawCounter > 0) // if there is a seven that would result in us drawing if we can't respond.
             {
-                if (gameState.playedCards.Last().face == Face._7 && best7Index != -1)
-                    gameState.PlayCard(best7Index, bubeSuit.ToString());
-                else
-                    gameState.PlayCard(bestCardIndex, bubeSuit.ToString());
+                var validSevens = from t in ratedTurns where t.card.face == Face._7 select t;
+
+                if (validSevens.Any())
+                {
+                    var bestSeven = validSevens.OrderBy(x => x.probability).First();
+                    gameState.PlayCard(bestSeven.index);
+                    return;
+                }
+
+                // The gameState will handle drawing cards automatically if we don't respond with a seven.
             }
+
+            // Otherwise Play the card with the lowest response probability.
+            var bestCard = ratedTurns.OrderBy(c => c.probability).First();
+
+            gameState.PlayCard(bestCard.index, bestCard.card.suit); // second parameter handles chosen suit for `Bube`.
+
+            // The gameState will automatically end the turn for us if the chosen card didn't require a follow-up card.
         }
 
         private void HandleNiceBot(GameState gameState, Player player)
@@ -774,6 +843,8 @@ namespace Demos
                     gameState.PlayCard(worstCardIndex, bubeSuit.ToString());
             }
         }
+
+        private static double CalculateResponseProbability(Player player, Card card, Player nextPlayer) => GetProbabilityForCard(player, card, nextPlayer);
 
         private static double GetProbabilityForCard(Player player, Card card, Player nextPlayer)
         {
