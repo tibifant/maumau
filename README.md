@@ -1,6 +1,8 @@
 # A Mulitplayer and Bot for MauMau
 
-A lovely and simple MauMau Game to play with your friends via a local Webserver or against Bots.
+A lovely and simple webbased MauMau game written in C# to play against your friends via a local Webserver or against Bots.
+
+The limited-knowledge bots count cards, sort them and figure out the best move, with the one bot having his own winning in mind, while there's another one that tries to play in your favour instead.
 
 Based on [LamestWebserver](https://github.com/rainerzufalldererste/LamestWebserver) ♥️
 
